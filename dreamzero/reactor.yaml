@@ -1,0 +1,33 @@
+# Copyright (c) 2026 Reactor Technologies, Inc. All rights reserved.
+$schema: reactor/v2
+model:
+  name: dreamzero-fast
+  version: v0.2.0
+  description: DreamZero-DROID action prediction from three camera streams.
+  resources:
+    gpu:
+      type: NVIDIA_B200
+      count: 2
+    cpu:
+      request: "16"
+      limit: "32"
+    memory:
+      request: 32Gi
+      limit: 320Gi
+runtime:
+  import: dreamzero:DreamZero
+  config: config.yml
+  weights_path: ./weights
+  recording:
+    enabled: false
+build:
+  runtime_version: "3.11.2"
+  cuda_version: "12.8.1"
+  system_packages: [git, libgl1, libglib2.0-0]
+  build_env:
+    UV_INDEX_STRATEGY: unsafe-best-match
+  runtime_env:
+    OMP_NUM_THREADS: "4"
+    MKL_NUM_THREADS: "4"
+    OPENBLAS_NUM_THREADS: "4"
+    NO_ALBUMENTATIONS_UPDATE: "1"

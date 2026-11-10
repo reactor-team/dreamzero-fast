@@ -1,0 +1,34 @@
+# Copyright (c) 2026 Reactor Technologies, Inc. All rights reserved.
+# Model dimensions and normalization come from the checkpoint.
+embodiment_tag: "oxe_droid"
+
+# Classifier-free guidance: 1 or 2 GPUs.
+num_gpus: 2
+
+# torch (SDPA), FA2 (FlashAttention) or TE (Transformer Engine).
+attention_backend: "torch"
+
+# Zero reads the image dimensions from checkpoint metadata.
+image_height: 0
+image_width: 0
+
+# Load checkpoint/tensorrt/wan/WanModel_nvfp4.trt when available.
+# A missing engine fails load; set false to use PyTorch.
+use_trt_engine: true
+
+# Reuse flow predictions according to the action head's similarity check.
+dynamic_cache_schedule: true
+
+# Solver schedule; separate from the number of transformer evaluations.
+num_inference_steps: 6
+
+# Static computation schedule when dynamic caching is disabled.
+num_dit_steps: 16
+
+# Reuse the text embeddings while the prompt tokens stay the same.
+prompt_cache: true
+
+# Encode 9 of the 33 image-conditioning frames before the first chunk of a
+# plan. Encode the full clip after that chunk returns. Same actions; faster
+# first chunk when the client waits between requests.
+vae_prefix: true

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env*
+weights/
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.onnx_data
+*.trt
+*.engine
+*.mp4
+*.log
