@@ -6,7 +6,6 @@ closed-loop DreamZero policy (see ``../docs/serving.md`` for the
 client-facing contract).
 """
 
-import numpy as np
 from reactor_runtime import (
     InputField,
     InputState,
@@ -15,6 +14,8 @@ from reactor_runtime import (
     Output,
     Video,
 )
+
+from observation_align import StampedFrame
 
 # --------------------------------------------------------------------- #
 #  Tracks                                                                #
@@ -46,8 +47,8 @@ class DreamZeroOutput(Output):
 
 
 class DreamZeroState(InputState):
-    # Frames received since the last step, at most four per camera.
-    _pending: dict[str, list[np.ndarray]] | None = None
+    # Stamped frames since the last accepted step, at most four per camera.
+    _pending: dict[str, list[StampedFrame]] | None = None
 
     prompt: str = InputField(
         default="",
@@ -61,7 +62,7 @@ class DreamZeroState(InputState):
         min_length=7,
         max_length=7,
         description="Measured robot joint positions (7 floats, radians). "
-        "Snapshotted together with the camera frames each chunk. "
+        "Snapshotted with the capture-time-aligned camera window each chunk. "
         "When unset, zeros are used and predicted joint targets are "
         "relative deltas rather than absolute positions.",
     )
@@ -70,7 +71,7 @@ class DreamZeroState(InputState):
         ge=0.0,
         le=1.0,
         description="Measured gripper position (0 = open, 1 = closed), "
-        "snapshotted together with the camera frames each chunk.",
+        "snapshotted with the capture-time-aligned camera window each chunk.",
     )
     video_preview: bool = InputField(
         default=False,

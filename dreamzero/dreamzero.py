@@ -28,6 +28,7 @@ from model_types import (
     EpisodeReset,
     EpisodeStarted,
 )
+from observation_align import AlignmentError, StampedFrame, align_pending
 
 CAMERAS = ("exterior_1", "exterior_2", "wrist")
 
@@ -74,26 +75,28 @@ class DreamZero(ReactorApp):
             track = getattr(self.media, name)
             try:
                 while (frames := track.try_read(1, mode=ReadMode.FIFO)) is not None:
-                    self.state._pending[name].extend(frame.data for frame in frames)
+                    for frame in frames:
+                        self.state._pending[name].append(
+                            StampedFrame(frame.data, frame.capture_time_us)
+                        )
                     self.state._pending[name] = self.state._pending[name][-4:]
             except BufferClosed:
                 self.state._pending[name] = []
                 raise ApplicationError(f"camera track closed: {name}") from None
-        missing = [name for name in CAMERAS if not self.state._pending[name]]
-        if missing:
-            raise ApplicationError("waiting for camera frames: " + ", ".join(missing))
+        try:
+            cameras = align_pending(self.state._pending, cameras=CAMERAS)
+        except AlignmentError as err:
+            raise ApplicationError(str(err)) from None
+        # Snapshot robot state only once cameras share a capture moment.
         request = DreamZeroInput(
             prompt=self.state.prompt,
-            cameras={
-                name: tuple(frames) for name, frames in self.state._pending.items()
-            },
+            cameras=cameras,
             joint_position=tuple(self.state.joint_position)
             if self.state.joint_position is not None
             else None,
             gripper_position=self.state.gripper_position,
             video_preview=self.state.video_preview,
         )
-        self.state._pending = {name: [] for name in CAMERAS}
         return request
 
     def generate(self, request: DreamZeroInput) -> DreamZeroResult:

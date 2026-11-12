@@ -20,7 +20,7 @@ python scripts/build_trt_engine_local.py --weights /path/to/weights
 
 Stream `exterior_1`, `exterior_2` and `wrist` as RGB camera tracks. Set `prompt`, `joint_position` (seven radians) and `gripper_position` (0 open, 1 closed) with `set_prompt`, `set_joint_position` and `set_gripper_position`, or in a stepped request's `state`.
 
-The application waits for a prompt and at least one fresh frame from every camera. Frames received during a refusal are retained until the missing camera arrives. Each accepted step passes at most four newest frames per camera to the model. This pairing is based on arrival order; it does not synchronize capture timestamps.
+The application waits for a prompt and at least one fresh frame from every camera. Frames received during a refusal are retained until cameras share a `capture_time_us` (within 1 ms). Each accepted step passes at most four frames per camera ending at that shared moment. Unmatched newer frames stay pending so a lagging track can catch up. Unstamped frames or skew beyond 1 ms refuse the step.
 
 The model retains four frames per camera. The first chunk uses only the newest frame in each view. Later chunks use the four-frame window, repeating the oldest frame while the window fills. A changed prompt clears the old episode and starts chunk zero.
 

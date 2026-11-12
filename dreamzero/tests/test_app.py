@@ -11,6 +11,7 @@ from reactor_runtime import ApplicationError, StepOutcome
 from dreamzero import CAMERAS, DreamZero
 from dreamzero_model import DreamZeroResult
 from model_types import DreamZeroState
+from observation_align import StampedFrame
 
 
 class Track:
@@ -18,7 +19,17 @@ class Track:
         self.frames = []
 
     def try_read(self, count, mode):
-        return [SimpleNamespace(data=self.frames.pop(0))] if self.frames else None
+        return [self.frames.pop(0)] if self.frames else None
+
+
+def rgb(tag: int = 0) -> np.ndarray:
+    return np.full((2, 3, 3), tag % 256, dtype=np.uint8)
+
+
+def push(app, name: str, data: np.ndarray, capture_time_us: int = 1_000_000) -> None:
+    getattr(app.media, name).frames.append(
+        SimpleNamespace(data=data, capture_time_us=capture_time_us)
+    )
 
 
 @pytest.fixture
@@ -37,12 +48,12 @@ def run(coro):
 
 
 def test_refusal_keeps_partial_camera_inputs(app):
-    frame = np.zeros((2, 3, 3), np.uint8)
-    app.media.wrist.frames.append(frame)
+    frame = rgb(1)
+    push(app, "wrist", frame)
     with pytest.raises(ApplicationError, match="exterior_1"):
         run(app.process_input())
     for name in ("exterior_1", "exterior_2"):
-        getattr(app.media, name).frames.append(frame)
+        push(app, name, frame)
     request = run(app.process_input())
     assert set(request.cameras) == set(CAMERAS)
     assert request.cameras["wrist"][0] is frame
@@ -52,10 +63,35 @@ def test_refusal_keeps_partial_camera_inputs(app):
 
 def test_empty_prompt_refuses_before_consuming(app):
     app.state.prompt = " "
-    app.media.wrist.frames.append(np.zeros((2, 3, 3), np.uint8))
+    push(app, "wrist", rgb())
     with pytest.raises(ApplicationError, match="prompt"):
         run(app.process_input())
     assert len(app.media.wrist.frames) == 1
+
+
+def test_lagging_camera_keeps_newer_pending_until_aligned(app):
+    early = rgb(1)
+    later = rgb(2)
+    for name in ("exterior_1", "exterior_2"):
+        push(app, name, early, capture_time_us=1_000_000)
+        push(app, name, later, capture_time_us=2_000_000)
+    push(app, "wrist", early, capture_time_us=1_000_000)
+    request = run(app.process_input())
+    assert request.cameras["exterior_1"] == (early,)
+    assert request.cameras["wrist"] == (early,)
+    # Newer exterior frames stay pending for the next aligned step.
+    assert [f.data is later for f in app.state._pending["exterior_1"]]
+    assert app.state._pending["wrist"] == []
+
+
+def test_unstamped_frames_refuse(app):
+    frame = rgb()
+    for name in CAMERAS:
+        getattr(app.media, name).frames.append(
+            SimpleNamespace(data=frame, capture_time_us=None)
+        )
+    with pytest.raises(ApplicationError, match="capture_time_us"):
+        run(app.process_input())
 
 
 def test_output_contains_actions_for_streamed_and_stepped_clients(app):
@@ -75,7 +111,7 @@ def test_error_is_not_hidden(app):
 
 
 def test_reset_keeps_state_and_drops_pending_frames(app):
-    app.state._pending["wrist"] = [np.zeros((2, 3, 3), np.uint8)]
+    app.state._pending["wrist"] = [StampedFrame(rgb(), 1)]
     run(app.reset())
     app.model.reset.assert_called_once()
     assert app.state.prompt == "pick up the ball"
@@ -90,7 +126,7 @@ def test_session_end_resets_model(app):
 def test_closed_camera_refuses_without_stale_pending_frames(app):
     from reactor_runtime import BufferClosed
 
-    app.state._pending["wrist"] = [np.zeros((2, 3, 3), np.uint8)]
+    app.state._pending["wrist"] = [StampedFrame(rgb(), 1)]
     app.media.wrist.try_read = Mock(side_effect=BufferClosed("closed"))
     with pytest.raises(ApplicationError, match="camera track closed: wrist"):
         run(app.process_input())
@@ -115,7 +151,7 @@ def test_frame_metadata_supports_flat_and_enveloped_actions(app):
 
 
 def test_pending_frames_are_session_local(app):
-    frame = np.zeros((2, 3, 3), np.uint8)
+    frame = StampedFrame(rgb(), 1)
     app.state._pending["wrist"] = [frame]
     previous = app.state
     app.state = DreamZeroState(prompt="new session")
